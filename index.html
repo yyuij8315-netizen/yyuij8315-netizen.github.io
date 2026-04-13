@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>小太阳奖励机制 3.0 - 杂志高定自动溢出版</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500;700&family=Inter:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-color: #f4f3ef;
+    --text-main: #1a1a1a;
+    --text-muted: #888888;
+    --accent-orange: #ff5e00;
+    --card-bg: #ffffff;
+    --card-redeemable: #fffdf5;
+    --card-shadow: 0 20px 40px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.03);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background-color: var(--bg-color);
+    display: flex; flex-direction: column; align-items: center;
+    padding: 20px; padding-top: 80px; padding-bottom: 140px; 
+    color: var(--text-main); margin: 0;
+  }
+
+  h1, h2 { font-family: 'Noto Serif SC', 'Georgia', serif; font-weight: 700; letter-spacing: 2px; }
+  h1 { margin-bottom: 40px; font-size: 28px; color: var(--text-main); }
+
+  /* 顶部轻量提示 (Toast) */
+  .toast-msg {
+    position: fixed;
+    top: 30px;
+    left: 50%;
+    transform: translateX(-50%) translateY(-20px);
+    background-color: var(--text-main);
+    color: var(--card-bg);
+    padding: 12px 28px;
+    border-radius: 50px;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    z-index: 3000;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.4s cubic-bezier(0.19, 1, 0.22, 1);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+  }
+  .toast-msg.show {
+    opacity: 1;
+    visibility: visible;
+    transform: translateX(-50%) translateY(0);
+  }
+
+  /* 左上角卡册按钮 */
+  #open-album-btn {
+    position: fixed; top: 25px; left: 25px;
+    background-color: transparent; color: var(--text-main);
+    border: 1px solid var(--text-main); padding: 10px 20px; border-radius: 4px; 
+    font-size: 13px; font-weight: 600; letter-spacing: 1px;
+    cursor: pointer; z-index: 100; transition: all 0.4s ease; text-transform: uppercase;
+  }
+  #open-album-btn:hover { background-color: var(--text-main); color: var(--card-bg); }
+
+  /* 右上角任务抽屉按钮 */
+  #open-drawer-btn {
+    position: fixed; top: 25px; right: 25px;
+    background-color: var(--text-main); color: var(--card-bg);
+    border: 1px solid var(--text-main); padding: 10px 20px; border-radius: 4px;
+    font-size: 13px; font-weight: 600; letter-spacing: 1px;
+    cursor: pointer; z-index: 100; transition: all 0.4s ease; text-transform: uppercase;
+  }
+  #open-drawer-btn:hover { background-color: transparent; color: var(--text-main); }
+
+  /* 卡册弹窗 */
+  .modal-overlay {
+    display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(244, 243, 239, 0.85); z-index: 1000;
+    justify-content: center; align-items: center; backdrop-filter: blur(10px);
+    animation: fadeIn 0.4s ease;
+  }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+  .modal-content {
+    background: var(--card-bg); width: 95%; max-width: 900px; height: 85vh;
+    border-radius: 8px; padding: 50px; overflow-y: auto; position: relative;
+    box-shadow: 0 30px 60px rgba(0,0,0,0.1); border: 1px solid #eaeaea;
+  }
+  .close-btn {
+    position: absolute; top: 20px; right: 30px; font-size: 36px;
+    font-weight: 300; color: var(--text-muted); cursor: pointer; transition: color 0.3s;
+  }
+  .close-btn:hover { color: var(--text-main); }
+  .modal-content h2 { margin-top: 0; margin-bottom: 40px; border-bottom: 1px solid #ddd; padding-bottom: 20px; text-align: center; font-size: 24px; }
+
+  /* 核心卡片样式 */
+  .card {
+    background: var(--card-bg); border-radius: 12px; box-shadow: var(--card-shadow);
+    padding: 30px; width: 340px; transition: all 0.5s cubic-bezier(0.19, 1, 0.22, 1); 
+    position: relative; overflow: hidden; border: 1px solid #f0f0f0;
+  }
+  .card:hover { transform: translateY(-5px); box-shadow: 0 30px 50px rgba(0,0,0,0.08), 0 2px 5px rgba(0,0,0,0.04); }
+
+  #active-card-container { margin-bottom: 20px; position: relative; z-index: 10; min-height: 220px; }
+  
+  .active-card-header, .card-album-header { 
+    display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; 
+    font-family: 'Noto Serif SC', serif; font-size: 18px; font-weight: 700;
+    border-bottom: 2px solid var(--text-main); padding-bottom: 10px;
+  }
+  #active-count { font-family: 'Inter', sans-serif; font-weight: 600; font-size: 16px; color: var(--accent-orange); }
+
+  .slots-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 15px; }
+  .slot { 
+    width: 48px; height: 48px; border-radius: 50%; background-color: transparent; 
+    border: 1px dashed #d0d0d0; display: flex; justify-content: center; align-items: center; transition: border 0.3s;
+  }
+  .slot:has(.sun) { border: 1px solid transparent; }
+  
+  .sun { font-size: 32px; line-height: 1; filter: drop-shadow(0 2px 4px rgba(255, 94, 0, 0.3));}
+  .sun-pop-in { animation: popIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
+  @keyframes popIn { 
+    0% { transform: scale(0) rotate(-30deg); opacity: 0; } 
+    70% { transform: scale(1.15) rotate(10deg); } 
+    100% { transform: scale(1) rotate(0); opacity: 1; } 
+  }
+
+  #album-container { width: 100%; display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 30px; justify-items: center; }
+
+  .card.redeemable { background: var(--card-redeemable); border: 1px solid #eedda3; }
+  .redeem-action-area { margin-top: 25px; padding-top: 15px; text-align: right; }
+  .redeem-btn { 
+    background-color: var(--text-main); color: var(--card-bg); padding: 8px 24px; 
+    font-size: 13px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase;
+    border: 1px solid var(--text-main); border-radius: 4px; cursor: pointer; transition: all 0.3s;
+  }
+  .redeem-btn:hover { background-color: transparent; color: var(--text-main); }
+  .card.redeemed { background: #fafafa; border: 1px solid #ebebeb; box-shadow: 0 4px 10px rgba(0,0,0,0.02); filter: grayscale(100%); opacity: 0.7; }
+  .card.redeemed:hover { transform: none; box-shadow: 0 4px 10px rgba(0,0,0,0.02); }
+  .card.redeemed .card-album-header { border-bottom: 2px solid #ccc; color: #999; }
+  .card.redeemed .redeem-btn { display: none; }
+  .redeemed-status { 
+    display: none; font-family: 'Noto Serif SC', serif; font-size: 16px; color: #999; font-weight: 700; 
+    letter-spacing: 4px; border: 1px solid #999; padding: 6px 12px; border-radius: 4px; transform: rotate(-5deg);
+  }
+  .card.redeemed .redeemed-status { display: inline-block; }
+
+  /* 底部控制按钮 */
+  .controls { position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%); display: flex; gap: 20px; z-index: 100; }
+  .controls button { 
+    padding: 16px 36px; border: none; border-radius: 50px; font-size: 15px; font-weight: 600; 
+    letter-spacing: 1px; cursor: pointer; transition: all 0.3s cubic-bezier(0.19, 1, 0.22, 1); box-shadow: 0 10px 20px rgba(0,0,0,0.1); 
+  }
+  .controls button:active { transform: scale(0.96); }
+  #add-sun-btn { background-color: var(--accent-orange); color: white; }
+  #add-sun-btn:hover { background-color: #e65400; box-shadow: 0 12px 24px rgba(255, 94, 0, 0.25); }
+  #add-sun-btn:disabled { background-color: #e0e0e0; color: #a0a0a0; cursor: not-allowed; box-shadow: none; }
+  #add-card-btn { background-color: var(--text-main); color: white; display: none; }
+  #add-card-btn:hover { background-color: #333; box-shadow: 0 12px 24px rgba(0, 0, 0, 0.2); }
+
+  /* 侧边抽屉 */
+  .drawer-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.2); opacity: 0; visibility: hidden; transition: all 0.3s ease; z-index: 2000; backdrop-filter: blur(2px); }
+  .drawer-overlay.active { opacity: 1; visibility: visible; }
+  .reward-drawer { position: fixed; top: 0; right: -420px; width: 380px; height: 100%; background-color: var(--bg-color); box-shadow: -10px 0 30px rgba(0,0,0,0.05); transition: right 0.4s cubic-bezier(0.19, 1, 0.22, 1); z-index: 2001; display: flex; flex-direction: column; padding: 30px; box-sizing: border-box; border-left: 1px solid #e0e0e0; }
+  .reward-drawer.open { right: 0; }
+  .drawer-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--text-main); padding-bottom: 15px; margin-bottom: 25px; }
+  .drawer-header h2 { margin: 0; font-size: 20px; letter-spacing: 1px; color: var(--text-main); }
+  .drawer-input-area { display: flex; flex-direction: column; gap: 12px; margin-bottom: 30px; }
+  .input-row { display: flex; gap: 10px; }
+  .drawer-input-area input { background-color: var(--card-bg); border: 1px solid #ddd; color: var(--text-main); padding: 12px; border-radius: 4px; flex: 1; font-family: 'Inter', sans-serif; outline: none; transition: border-color 0.3s; }
+  .drawer-input-area input:focus { border-color: var(--text-main); }
+  #taskSunInput { flex: 0 0 80px; text-align: center; }
+  #saveTaskBtn { background-color: var(--text-main); color: var(--card-bg); border: 1px solid var(--text-main); padding: 12px; border-radius: 4px; cursor: pointer; font-weight: 600; letter-spacing: 1px; transition: all 0.3s; text-transform: uppercase; }
+  #saveTaskBtn:hover { background-color: transparent; color: var(--text-main); }
+  .drawer-task-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 15px; padding-right: 5px; }
+  .drawer-task-list::-webkit-scrollbar { width: 4px; }
+  .drawer-task-list::-webkit-scrollbar-thumb { background: #ccc; border-radius: 2px; }
+  .task-item { background-color: var(--card-bg); border: 1px solid #eaeaea; border-radius: 8px; padding: 15px; display: flex; flex-direction: column; gap: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.02); }
+  .task-info { display: flex; justify-content: space-between; align-items: center; }
+  .task-name { font-weight: 600; font-size: 15px; color: var(--text-main); }
+  .task-suns { color: var(--accent-orange); font-weight: 700; font-family: 'Inter', sans-serif;}
+  .task-actions { display: flex; justify-content: flex-end; gap: 10px; border-top: 1px dashed #eee; padding-top: 12px; }
+  .action-btn { border: 1px solid; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.2s; }
+  .claim-btn { border-color: var(--accent-orange); background-color: var(--accent-orange); color: white; }
+  .claim-btn:hover { background-color: #e65400; }
+  .delete-btn { border-color: #ddd; background-color: transparent; color: var(--text-muted); }
+  .delete-btn:hover { border-color: var(--text-main); color: var(--text-main); }
+
+</style>
+<link rel="manifest" href="./manifest.json"><script>navigator.serviceWorker.register('./sw.js')</script></head>
+<body>
+
+  <div id="toastMsg" class="toast-msg">已领取奖励</div>
+
+  <button id="open-album-btn" onclick="toggleAlbum(true)">Reward Album</button>
+  <button id="open-drawer-btn" onclick="toggleDrawer()">Tasks Menu</button>
+
+  <h1>我的小太阳</h1>
+  
+  <div id="active-card-container"></div>
+
+  <div id="album-modal" class="modal-overlay">
+    <div class="modal-content">
+      <span class="close-btn" onclick="toggleAlbum(false)">&times;</span>
+      <h2>兑换卡册</h2>
+      <div id="album-container"></div>
+    </div>
+  </div>
+
+  <div class="drawer-overlay" id="drawerOverlay" onclick="toggleDrawer()"></div>
+  <div class="reward-drawer" id="rewardDrawer">
+    <div class="drawer-header">
+      <h2 style="font-family:'Noto Serif SC', serif;">任务与奖励</h2>
+      <button class="close-btn" style="position:static;" onclick="toggleDrawer()">&times;</button>
+    </div>
+    <div class="drawer-input-area">
+      <div class="input-row">
+        <input type="text" id="taskNameInput" placeholder="自定义任务内容...">
+        <input type="number" id="taskSunInput" placeholder="☀️数" min="1" value="1">
+      </div>
+      <button id="saveTaskBtn">保存任务</button>
+    </div>
+    <div class="drawer-task-list" id="taskList"></div>
+  </div>
+
+  <div class="controls">
+    <button id="add-sun-btn" onclick="processSuns(1)">收集小太阳</button>
+    <button id="add-card-btn" onclick="addNewCard()">开启新卡片</button>
+  </div>
+
+<script>
+  let appState;
+  try {
+    appState = JSON.parse(localStorage.getItem('sunRewardStateV4'));
+    if (!appState) throw new Error("No data"); 
+  } catch(e) {
+    appState = { activeCard: { id: 1, sunsCount: 0 }, redeemedCards: [] };
+  }
+
+  const activeCardContainer = document.getElementById('active-card-container');
+  const albumContainer = document.getElementById('album-container');
+  const addSunBtn = document.getElementById('add-sun-btn');
+  const addCardBtn = document.getElementById('add-card-btn');
+
+  function init() {
+    renderActiveCard(); renderAlbum(); updateButtons(); renderTasks();
+  }
+
+  function saveData() { localStorage.setItem('sunRewardStateV4', JSON.stringify(appState)); }
+
+  function toggleAlbum(show) { document.getElementById('album-modal').style.display = show ? 'flex' : 'none'; }
+
+  // 提示框逻辑
+  function showToast(msg) {
+    const toast = document.getElementById('toastMsg');
+    toast.innerText = msg;
+    toast.classList.add('show');
+    // 2秒后自动隐藏
+    setTimeout(() => toast.classList.remove('show'), 2000);
+  }
+
+  function renderActiveCard() {
+    activeCardContainer.innerHTML = '';
+    if (!appState.activeCard) {
+      activeCardContainer.innerHTML = '<div style="color:#aaa; text-align:center; padding: 60px 0; font-family:\'Noto Serif SC\',serif;">目前没有进行中的卡片<br><br>点击下方按钮开启</div>';
+      return;
+    }
+    const { id, sunsCount } = appState.activeCard;
+    const cardDiv = document.createElement('div');
+    cardDiv.className = 'card active'; cardDiv.id = `active-card-${id}`;
+
+    let slotsHTML = '';
+    for (let i = 0; i < 10; i++) { slotsHTML += `<div class="slot" id="active-slot-${i}"></div>`; }
+
+    cardDiv.innerHTML = `
+      <div class="active-card-header">
+        <span>Reward Card #${id}</span>
+        <span id="active-count">${sunsCount}/10</span>
+      </div>
+      <div class="slots-grid">${slotsHTML}</div>
+    `;
+    activeCardContainer.appendChild(cardDiv);
+    for (let i = 0; i < sunsCount; i++) { addSunToSlot(i, false); }
+  }
+
+  function addSunToSlot(slotIndex, withAnimation) {
+    const slot = document.getElementById(`active-slot-${slotIndex}`);
+    if (slot) {
+      const sunSpan = document.createElement('span');
+      sunSpan.className = `sun ${withAnimation ? 'sun-pop-in' : ''}`; 
+      sunSpan.innerText = '☀️';
+      slot.appendChild(sunSpan);
+    }
+  }
+
+  function addNewCard() {
+    let lastId = 0;
+    if (appState.redeemedCards.length > 0) { lastId = Math.max(...appState.redeemedCards.map(c => c.id)); }
+    if (appState.activeCard) { lastId = Math.max(lastId, appState.activeCard.id); }
+    
+    appState.activeCard = { id: lastId + 1, sunsCount: 0 };
+    saveData(); renderActiveCard(); updateButtons();
+  }
+
+  function renderAlbum() {
+    albumContainer.innerHTML = '';
+    if (appState.redeemedCards.length === 0) {
+      albumContainer.innerHTML = '<div style="color:#aaa; grid-column: 1 / -1; text-align: center; font-family:\'Noto Serif SC\',serif; margin-top:40px;">卡册空空如也，快去收集吧。</div>';
+      return;
+    }
+    appState.redeemedCards.forEach(card => {
+      const { id, status } = card; const isRedeemed = status === 'redeemed';
+      const cardDiv = document.createElement('div');
+      cardDiv.className = `card redeemable ${isRedeemed ? 'redeemed' : ''}`;
+      let slotsHTML = '';
+      for (let i = 0; i < 10; i++) { slotsHTML += `<div class="slot"><span class="sun">☀️</span></div>`; }
+      cardDiv.innerHTML = `
+        <div class="card-album-header"><span class="card-album-id">Reward Card #${id}</span></div>
+        <div class="slots-grid">${slotsHTML}</div>
+        <div class="redeem-action-area">
+          <button class="redeem-btn" onclick="redeemCard(${id})">兑换</button>
+          <span class="redeemed-status">已兑换 / REDEEMED</span>
+        </div>
+      `;
+      albumContainer.appendChild(cardDiv);
+    });
+  }
+
+  function redeemCard(cardId) {
+    if (!confirm(`确认兑换奖励卡 #${cardId} 吗？`)) return;
+    const card = appState.redeemedCards.find(c => c.id === cardId);
+    if (card) { card.status = 'redeemed'; saveData(); renderAlbum(); }
+  }
+
+  function updateButtons() {
+    addSunBtn.disabled = false;
+    if (appState.activeCard && appState.activeCard.sunsCount < 10) {
+      addSunBtn.style.display = 'block'; addCardBtn.style.display = 'none';
+    } else if (!appState.activeCard) {
+      addSunBtn.style.display = 'none'; addCardBtn.style.display = 'block';
+    } else { addSunBtn.disabled = true; }
+  }
+
+
+  /* =========================================
+     核心重构：支持溢出自动建卡、异步排队动画
+     ========================================= */
+  
+  // 辅助函数：等待一段时间，让动画有时间播放
+  const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+  
+  let isProcessingSuns = false; // 防止狂点导致动画错乱
+
+  // 全新的统一加太阳主函数
+  async function processSuns(amount) {
+    if (isProcessingSuns) return; // 如果正在播放动画，暂时忽略新点击
+    isProcessingSuns = true;
+    
+    // 触发成功提示框
+    showToast(`✅ 成功领取 ${amount} 个太阳`);
+
+    // 逐个添加太阳
+    for (let i = 0; i < amount; i++) {
+        
+        // 1. 如果没有活动卡片（可能是刚开局，或者刚刚因为满10个被收起来了），自动新建
+        if (!appState.activeCard) {
+            addNewCard();
+            await sleep(200); // 稍微等一下 DOM 渲染新卡片
+        }
+
+        const currentSuns = appState.activeCard.sunsCount;
+        if (currentSuns >= 10) continue; // 安全兜底
+
+        // 2. 增加数据并存档
+        appState.activeCard.sunsCount++;
+        saveData();
+
+        // 3. 更新界面文字和飞入太阳
+        const countElement = document.getElementById('active-count');
+        if(countElement) countElement.innerText = `${appState.activeCard.sunsCount}/10`;
+        addSunToSlot(currentSuns, true);
+        
+        // 每飞入一个太阳，稍微停顿一下，让视觉上更有节奏感
+        await sleep(200); 
+
+        // 4. 如果这张卡片刚好满了，触发打包收起动画
+        if (appState.activeCard.sunsCount === 10) {
+            await handleActiveCardFullAsync();
+            // 收起动画结束后，循环继续，如果还有多余的太阳，下一个循环会在顶部触发 addNewCard()
+        }
+    }
+
+    isProcessingSuns = false; // 所有太阳添加完毕，解锁
+  }
+
+  // 异步版本的“卡片收起”动画
+  async function handleActiveCardFullAsync() {
+    const activeCard = appState.activeCard;
+    addSunBtn.disabled = true;
+
+    await sleep(300); // 满格后停顿一下让玩家看清
+    
+    // 触发缩小飞走的 CSS 动画
+    const cardDOM = document.getElementById(`active-card-${activeCard.id}`);
+    if(cardDOM) {
+        cardDOM.classList.add('redeemable');
+        cardDOM.style.transition = 'all 0.6s cubic-bezier(0.19, 1, 0.22, 1)';
+        cardDOM.style.transform = 'scale(0.8) translate(-100px, -200px)'; 
+        cardDOM.style.opacity = '0';
+    }
+
+    await sleep(600); // 等待 CSS 动画播完
+    
+    // 存入卡册，清空当前卡
+    appState.redeemedCards.unshift({ id: activeCard.id, status: 'redeemable' }); 
+    appState.activeCard = null; 
+    saveData();
+    
+    // 刷新界面，此时主界面会变成空
+    renderActiveCard();
+    renderAlbum();
+    updateButtons();
+  }
+
+
+  /* =========================================
+     侧边抽屉逻辑
+     ========================================= */
+  const drawer = document.getElementById('rewardDrawer');
+  const overlay = document.getElementById('drawerOverlay');
+  const taskListEl = document.getElementById('taskList');
+  const taskNameInput = document.getElementById('taskNameInput');
+  const taskSunInput = document.getElementById('taskSunInput');
+  const saveTaskBtn = document.getElementById('saveTaskBtn');
+  const TASK_STORAGE_KEY = 'st_custom_reward_tasks_v3';
+
+  function toggleDrawer() {
+    const isOpen = drawer.classList.contains('open');
+    if (isOpen) { drawer.classList.remove('open'); overlay.classList.remove('active'); } 
+    else { drawer.classList.add('open'); overlay.classList.add('active'); renderTasks(); }
+  }
+
+  function getSavedTasks() {
+    const tasksJson = localStorage.getItem(TASK_STORAGE_KEY);
+    return tasksJson ? JSON.parse(tasksJson) : [];
+  }
+
+  function saveTasks(tasks) { localStorage.setItem(TASK_STORAGE_KEY, JSON.stringify(tasks)); }
+
+  function renderTasks() {
+    const tasks = getSavedTasks();
+    taskListEl.innerHTML = '';
+    if (tasks.length === 0) {
+      taskListEl.innerHTML = '<div style="text-align:center; color:var(--text-muted); margin-top:20px; font-size:14px;">暂无自定义任务</div>'; return;
+    }
+    tasks.forEach((task, index) => {
+      const taskItem = document.createElement('div');
+      taskItem.className = 'task-item';
+      taskItem.innerHTML = `
+        <div class="task-info">
+            <span class="task-name">${task.name}</span>
+            <span class="task-suns">☀️ x ${task.suns}</span>
+        </div>
+        <div class="task-actions">
+            <button class="action-btn claim-btn" onclick="processSuns(${task.suns})">领取</button>
+            <button class="action-btn delete-btn" onclick="deleteTask(${index})">删除</button>
+        </div>
+      `;
+      taskListEl.appendChild(taskItem);
+    });
+  }
+
+  saveTaskBtn.addEventListener('click', () => {
+    const name = taskNameInput.value.trim();
+    const suns = parseInt(taskSunInput.value);
+    if (!name || isNaN(suns) || suns <= 0) { alert('请填写任务名称和有效的太阳数量！'); return; }
+    const tasks = getSavedTasks();
+    tasks.push({ name, suns }); saveTasks(tasks); renderTasks();
+    taskNameInput.value = ''; taskSunInput.value = '1';
+  });
+
+  function deleteTask(index) {
+    if(!confirm('确定删除此任务？')) return;
+    const tasks = getSavedTasks();
+    tasks.splice(index, 1); saveTasks(tasks); renderTasks();
+  }
+
+  init();
+
+</script>
+</body>
+</html>
